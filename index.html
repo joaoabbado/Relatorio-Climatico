@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatório Clima</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" integrity="sha512-GsLlZN/3F2ErC5ifS5QtgpiJtWd43JWSuIgh7mbzZ8zBps+dvLusV+eNQATqgA/HdeKFVgA5v3S/cIrLF7QnIg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    
+</head>
+<body>
+    <div class="container" id="relatorio">
+        <div class="header">
+            <button onclick="salvarPDF()">SALVAR</button>
+            <h2>RELATÓRIO CLIMA</h2>
+        </div>
+
+        <div class="form-group">
+            <label for="estado">Estado:</label>
+            <select id="estado" onchange="carregarCidades()"></select>
+        </div>
+        <div class="form-group">
+            <label for="cidade">Cidade:</label>
+            <select id="cidade" onchange="atualizarDados()"></select>
+        </div>
+        <div class="form-group">
+            <label for="data">Período de Coleta:</label>
+            <input type="text" id="data" readonly>
+        </div>
+
+        <div class="air-quality">
+            <div>Qualidade do Ar</div>
+            <span id="qualidadeAr">Boa</span>
+        </div>
+
+        <p id="informativo"></p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Horário</th>
+                    <th>Condição</th>
+                    <th>Chuva (%)</th>
+                    <th>Temperatura (°C)</th>
+                    <th>Sensação (°C)</th>
+                    <th>Umidade (%)</th>
+                    <th>Vento (Kph)</th>
+                </tr>
+            </thead>
+            <tbody id="previsaoTabela">
+                <!-- dados para ser exibidos -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            carregarEstados();
+            document.getElementById("data").value = new Date().toLocaleDateString("pt-BR");
+        });
+
+        const apiKey = "5a77d872a5d94e2695b180110240711";  
+
+        //  Estados
+        async function carregarEstados() {
+            const response = await fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados");
+            const estados = await response.json();
+            const estadoSelect = document.getElementById("estado");
+            estados.sort((a, b) => a.nome.localeCompare(b.nome));
+            estados.forEach(estado => {
+                const option = document.createElement("option");
+                option.value = estado.sigla; 
+                option.textContent = estado.nome;
+                estadoSelect.appendChild(option);
+            });
+        }
+
+        // Carregar Cidades com base no Estado selecionado
+        async function carregarCidades() {
+            const estadoId = document.getElementById("estado").value;
+            const response = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${estadoId}/municipios`);
+            const cidades = await response.json();
+            const cidadeSelect = document.getElementById("cidade");
+            cidadeSelect.innerHTML = "";
+            cidades.sort((a, b) => a.nome.localeCompare(b.nome));
+            cidades.forEach(cidade => {
+                const option = document.createElement("option");
+                option.value = cidade.nome;
+                option.textContent = cidade.nome;
+                cidadeSelect.appendChild(option);
+            });
+        }
+
+        // Atualizar Dados na Tabela e no Informativo
+        async function atualizarDados() {
+            const cidade = document.getElementById("cidade").value;
+            const estado = document.getElementById("estado").selectedOptions[0].textContent;
+            const dataAtual = new Date();
+            const horario = `${dataAtual.getHours()}:${dataAtual.getMinutes().toString().padStart(2, '0')}`;
+            document.getElementById("informativo").textContent = `No dia ${dataAtual.toLocaleDateString("pt-BR")} às ${horario}, foram coletados dados climáticos de ${cidade} - ${estado}.`;
+
+            // Buscar dados climáticos 
+            const climaResponse = await fetch(`https://api.weatherapi.com/v1/forecast.json?key=${apiKey}&q=${cidade}&days=1&aqi=yes&lang=pt`);
+            const climaData = await climaResponse.json();
+            preencherTabelaPrevisao(climaData.forecast.forecastday[0].hour);
+            atualizarQualidadeAr(climaData.current.air_quality);
+        }
+
+        // Preencher a tabela com dados 
+        function preencherTabelaPrevisao(previsoes) {
+            const tabela = document.getElementById("previsaoTabela");
+            tabela.innerHTML = ""; 
+            previsoes.forEach(previsao => {
+                const dataHora = new Date(previsao.time);
+                const horario = `${dataHora.getHours().toString().padStart(2, '0')}:00`;
+
+                const row = tabela.insertRow();
+                row.insertCell().textContent = horario;
+                row.insertCell().textContent = previsao.condition.text;
+                row.insertCell().textContent = previsao.chance_of_rain || 0;  // Chuva em %
+                row.insertCell().textContent = previsao.temp_c.toFixed(1);
+                row.insertCell().textContent = previsao.feelslike_c.toFixed(1);
+                row.insertCell().textContent = previsao.humidity;
+                row.insertCell().textContent = previsao.wind_kph.toFixed(1); // Velocidade em Kph
+            });
+        }
+
+        // Atualizar qualidade do ar
+        function atualizarQualidadeAr(qualidadeAr) {
+            const qualidadeElement = document.getElementById("qualidadeAr");
+            if (qualidadeAr) {
+                const pm2_5 = qualidadeAr.pm2_5.toFixed(1);
+                const pm10 = qualidadeAr.pm10.toFixed(1);
+                qualidadeElement.textContent = `PM2.5: ${pm2_5}, PM10: ${pm10}`;
+                qualidadeElement.style.backgroundColor = pm2_5 < 50 ? "green" : "orange";
+            } else {
+                qualidadeElement.textContent = "Dados indisponíveis";
+            }
+        }
+
+        // Função para Salvar PDF 
+        async function salvarPDF() {
+            const elemento = document.getElementById("relatorio");
+            const options = {
+                margin: [10, 10, 10, 10],
+                filename: "Relatorio_Clima.pdf",
+                image: { type: 'png', quality: 1 },
+                html2canvas: { scale: 1 },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+            };
+            html2pdf().set(options).from(elemento).save();
+        }
+    </script>
+</body>
+</html>
